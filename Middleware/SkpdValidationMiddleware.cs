@@ -1,8 +1,8 @@
 using System.Text;
 using System.Text.Json;
-using skpd_multi_tenant.Extensions;
+using skpd_multi_tenant_api.Extensions;
 
-namespace skpd_multi_tenant.Middleware;
+namespace skpd_multi_tenant_api.Middleware;
 
 /// <summary>
 /// Middleware untuk validasi akses SKPD pada operasi POST, PUT, DELETE

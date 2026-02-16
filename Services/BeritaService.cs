@@ -1,7 +1,7 @@
 using MySqlConnector;
-using skpd_multi_tenant.Models;
+using skpd_multi_tenant_api.Models;
 
-namespace skpd_multi_tenant.Services;
+namespace skpd_multi_tenant_api.Services;
 
 public interface IBeritaService
 {

@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using skpd_multi_tenant.Models;
-using skpd_multi_tenant.Services;
+using skpd_multi_tenant_api.Models;
+using skpd_multi_tenant_api.Services;
 
-namespace skpd_multi_tenant.Endpoints;
+namespace skpd_multi_tenant_api.Endpoints;
 
 public static class AuthEndpoints
 {

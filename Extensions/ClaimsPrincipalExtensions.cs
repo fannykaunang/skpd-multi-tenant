@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace skpd_multi_tenant.Extensions;
+namespace skpd_multi_tenant_api.Extensions;
 
 public static class ClaimsPrincipalExtensions
 {

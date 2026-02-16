@@ -1,4 +1,4 @@
-namespace skpd_multi_tenant.Models;
+namespace skpd_multi_tenant_api.Models;
 
 public sealed class Skpd
 {

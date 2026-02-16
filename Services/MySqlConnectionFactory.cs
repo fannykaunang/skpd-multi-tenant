@@ -1,6 +1,6 @@
 using MySqlConnector;
 
-namespace skpd_multi_tenant.Services;
+namespace skpd_multi_tenant_api.Services;
 
 public interface IMySqlConnectionFactory
 {

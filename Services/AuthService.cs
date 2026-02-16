@@ -4,12 +4,12 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
-using skpd_multi_tenant.Models;
-using skpd_multi_tenant.Options;
+using skpd_multi_tenant_api.Models;
+using skpd_multi_tenant_api.Options;
 using MySqlConnector;
 using System.Data;
 
-namespace skpd_multi_tenant.Services;
+namespace skpd_multi_tenant_api.Services;
 
 public interface IAuthService
 {

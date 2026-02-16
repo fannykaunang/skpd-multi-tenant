@@ -1,4 +1,4 @@
-namespace skpd_multi_tenant.Options;
+namespace skpd_multi_tenant_api.Options;
 
 public sealed class JwtOptions
 {

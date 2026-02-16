@@ -3,10 +3,10 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using skpd_multi_tenant.Endpoints;
-using skpd_multi_tenant.Middleware;
-using skpd_multi_tenant.Options;
-using skpd_multi_tenant.Services;
+using skpd_multi_tenant_api.Endpoints;
+using skpd_multi_tenant_api.Middleware;
+using skpd_multi_tenant_api.Options;
+using skpd_multi_tenant_api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 

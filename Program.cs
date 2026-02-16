@@ -1,9 +1,10 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using skpd_multi_tenant.Endpoints;
+using skpd_multi_tenant.Middleware;
 using skpd_multi_tenant.Options;
 using skpd_multi_tenant.Services;
 
@@ -31,6 +32,26 @@ builder.Services
         };
     });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("BeritaPolicy", context =>
+    {
+        // Ambil IP pengguna
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        // TokenBucketLimiter per IP
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ip,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,            // max 10 request
+                Window = TimeSpan.FromMinutes(1), // per 1 menit
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0               // tidak ada antrian, langsung reject jika over limit
+            });
+    });
+});
+
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -39,6 +60,8 @@ builder.Services.AddScoped<IMySqlConnectionFactory, MySqlConnectionFactory>();
 builder.Services.AddScoped<ISkpdService, SkpdService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITenantResolver, TenantResolver>();
+builder.Services.AddScoped<IBeritaService, BeritaService>();
+builder.Services.AddScoped<ICategoryService, CategoryService>();
 
 var app = builder.Build();
 
@@ -47,6 +70,9 @@ app.UseSwaggerUI();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
+
+app.UseSkpdValidation();
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -56,5 +82,7 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapAuthEndpoints();
 app.MapSkpdEndpoints();
+app.MapBeritaEndpoints();
+app.MapCategoryEndpoints();
 
 app.Run();

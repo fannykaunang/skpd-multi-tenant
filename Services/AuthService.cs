@@ -19,10 +19,24 @@ public interface IAuthService
         string ipAddress,
         string userAgent,
         CancellationToken cancellationToken = default);
+
+    Task<LoginResult> VerifyOtpAndLoginAsync(
+        VerifyOtpRequest request,
+        int? tenantSkpdId,
+        string ipAddress,
+        string userAgent,
+        CancellationToken cancellationToken = default);
+
+    Task<LoginResponse?> RefreshTokenAsync(
+        string refreshToken,
+        CancellationToken cancellationToken = default);
 }
 
-
-public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOptions<JwtOptions> jwtOptions) : IAuthService
+public sealed class AuthService(
+    IMySqlConnectionFactory connectionFactory,
+    IOptions<JwtOptions> jwtOptions,
+    IOtpService otpService,
+    IEmailService emailService) : IAuthService
 {
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
     const string DummyHash = "$2a$11$abcdefghijklmnopqrstuv123456789012345678901234";
@@ -50,15 +64,7 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
                 await rateCmd.ExecuteScalarAsync(cancellationToken));
 
             if (count >= 10)
-                return LoginResult.Invalid(); // tetap generic
-        }
-
-        await using (var insertAttempt = connection.CreateCommand())
-        {
-            insertAttempt.CommandText =
-                "INSERT INTO login_attempts_ip (ip_address, attempt_time) VALUES (@ip, UTC_TIMESTAMP())";
-            insertAttempt.Parameters.AddWithValue("@ip", ipAddress);
-            await insertAttempt.ExecuteNonQueryAsync(cancellationToken);
+                return LoginResult.Invalid();
         }
 
         // 2️⃣ Fetch user
@@ -105,17 +111,10 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
 
         if (user == null)
         {
-            if (user != null)
-                await HandleFailedLogin(connection, user, cancellationToken);
-
+            await InsertLoginAttempt(connection, null, ipAddress, userAgent, false, "user_not_found", cancellationToken);
             await InsertAuditLog(connection,
-                user?.Id,
-                tenantSkpdId,
-                request.UsernameOrEmail,
-                ipAddress,
-                userAgent,
-                "failed",
-                "invalid_credentials",
+                null, tenantSkpdId, request.UsernameOrEmail,
+                ipAddress, userAgent, "failed", "invalid_credentials",
                 cancellationToken);
 
             return LoginResult.Invalid();
@@ -124,33 +123,28 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
         if (!passwordValid)
         {
             await HandleFailedLogin(connection, user, cancellationToken);
+            await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, false, "invalid_password", cancellationToken);
             await InsertAuditLog(connection,
-                user.Id,
-                user.SkpdId,
-                request.UsernameOrEmail,
-                ipAddress,
-                userAgent,
-                "failed",
-                "invalid_password",
+                user.Id, user.SkpdId, request.UsernameOrEmail,
+                ipAddress, userAgent, "failed", "invalid_password",
                 cancellationToken);
 
             return LoginResult.Invalid();
         }
 
         if (!user.IsActive)
+        {
+            await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, false, "account_inactive", cancellationToken);
             return LoginResult.Invalid();
+        }
 
         if (user.LockoutUntil.HasValue &&
             user.LockoutUntil > DateTime.UtcNow)
         {
+            await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, false, "account_locked", cancellationToken);
             await InsertAuditLog(connection,
-                user.Id,
-                user.SkpdId,
-                request.UsernameOrEmail,
-                ipAddress,
-                userAgent,
-                "locked",
-                "account_locked",
+                user.Id, user.SkpdId, request.UsernameOrEmail,
+                ipAddress, userAgent, "locked", "account_locked",
                 cancellationToken);
 
             return LoginResult.Locked();
@@ -158,28 +152,195 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
 
         if (tenantSkpdId.HasValue &&
             user.SkpdId != tenantSkpdId)
+        {
+            await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, false, "tenant_mismatch", cancellationToken);
             return LoginResult.Invalid();
+        }
 
-        // 4️⃣ Success
-        await ResetFailedLogin(connection, user.Id, cancellationToken);
+        // 4️⃣ Credentials valid → send OTP
+        var otpCode = await otpService.GenerateAndStoreAsync(
+            connection, user.Email, "login", cancellationToken);
 
-        await LoadUserRolesAsync(connection, user, cancellationToken);
+        await emailService.SendOtpAsync(user.Email, otpCode, cancellationToken);
 
-        var response =
-            await CreateTokensAndStoreRefreshTokenAsync(
-                connection, user, cancellationToken);
-
+        await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, true, "otp_sent", cancellationToken);
         await InsertAuditLog(connection,
-            user.Id,
-            user.SkpdId,
-            request.UsernameOrEmail,
-            ipAddress,
-            userAgent,
-            "success",
-            "authenticated",
+            user.Id, user.SkpdId, request.UsernameOrEmail,
+            ipAddress, userAgent, "otp_sent", "credentials_valid",
+            cancellationToken);
+
+        return LoginResult.OtpSent(user.Email);
+    }
+
+    public async Task<LoginResult> VerifyOtpAndLoginAsync(
+        VerifyOtpRequest request,
+        int? tenantSkpdId,
+        string ipAddress,
+        string userAgent,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection =
+            await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+
+        // Rate limit
+        await using (var rateCmd = connection.CreateCommand())
+        {
+            rateCmd.CommandText = @"
+            SELECT COUNT(*) FROM login_attempts_ip
+            WHERE ip_address = @ip
+              AND attempt_time > (UTC_TIMESTAMP() - INTERVAL 1 MINUTE)";
+            rateCmd.Parameters.AddWithValue("@ip", ipAddress);
+
+            var count = Convert.ToInt32(
+                await rateCmd.ExecuteScalarAsync(cancellationToken));
+
+            if (count >= 10)
+                return LoginResult.Invalid();
+        }
+
+        // Fetch user by username or email first to get real email
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+        SELECT id, skpd_id, username, email, password_hash,
+               is_active, failed_login_attempt,
+               lockout_until, last_failed_login, last_login
+        FROM users
+        WHERE (username = @identity OR email = @identity)
+          AND deleted_at IS NULL
+        LIMIT 1;";
+        cmd.Parameters.AddWithValue("@identity", request.UsernameOrEmail);
+
+        AuthUser? user = null;
+
+        await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                user = new AuthUser
+                {
+                    Id = reader.GetInt64("id"),
+                    SkpdId = reader.IsDBNull("skpd_id")
+                        ? null
+                        : reader.GetInt32("skpd_id"),
+                    Username = reader.GetString("username"),
+                    Email = reader.GetString("email"),
+                    PasswordHash = reader.GetString("password_hash"),
+                    IsActive = reader.GetBoolean("is_active"),
+                    FailedLoginAttempt = reader.GetInt32("failed_login_attempt"),
+                    LockoutUntil = reader.IsDBNull("lockout_until")
+                        ? null
+                        : reader.GetDateTime("lockout_until")
+                };
+            }
+        }
+
+        if (user == null || !user.IsActive)
+        {
+            await InsertLoginAttempt(connection, request.UsernameOrEmail, ipAddress, userAgent, false, "user_not_found", cancellationToken);
+            return LoginResult.Invalid();
+        }
+
+        if (tenantSkpdId.HasValue && user.SkpdId != tenantSkpdId)
+        {
+            await InsertLoginAttempt(connection, request.UsernameOrEmail, ipAddress, userAgent, false, "tenant_mismatch", cancellationToken);
+            return LoginResult.Invalid();
+        }
+
+        // Verify OTP code
+        var otpValid = await otpService.VerifyAsync(
+            connection, user.Email, request.Code, "login", cancellationToken);
+
+        if (!otpValid)
+        {
+            await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, false, "invalid_otp", cancellationToken);
+            await InsertAuditLog(connection,
+                user.Id, user.SkpdId, request.UsernameOrEmail,
+                ipAddress, userAgent, "failed", "invalid_otp",
+                cancellationToken);
+            return LoginResult.Invalid();
+        }
+
+        // OTP valid → issue tokens
+        await ResetFailedLogin(connection, user.Id, cancellationToken);
+        await LoadUserRolesAsync(connection, user, cancellationToken);
+        await LoadUserPermissionsAsync(connection, user, cancellationToken);
+
+        var response = await CreateTokensAndStoreRefreshTokenAsync(
+            connection, user, cancellationToken);
+
+        await InsertLoginAttempt(connection, user.Email, ipAddress, userAgent, true, null, cancellationToken);
+        await InsertAuditLog(connection,
+            user.Id, user.SkpdId, request.UsernameOrEmail,
+            ipAddress, userAgent, "success", "authenticated",
             cancellationToken);
 
         return LoginResult.Success(response);
+    }
+
+    public async Task<LoginResponse?> RefreshTokenAsync(
+        string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+
+        // 1. Find the refresh token and associated user
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT rt.id AS token_id, rt.user_id, rt.expires_at, rt.revoked,
+                   u.id, u.skpd_id, u.username, u.email, u.password_hash,
+                   u.is_active, u.failed_login_attempt, u.lockout_until
+            FROM refresh_tokens rt
+            JOIN users u ON u.id = rt.user_id
+            WHERE rt.token = @token AND u.deleted_at IS NULL
+            LIMIT 1";
+        cmd.Parameters.AddWithValue("@token", refreshToken);
+
+        long tokenId;
+        AuthUser? user = null;
+        DateTime expiresAt;
+        bool revoked;
+
+        await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+                return null; // Token not found
+
+            tokenId = reader.GetInt64("token_id");
+            expiresAt = reader.GetDateTime("expires_at");
+            revoked = reader.GetBoolean("revoked");
+
+            user = new AuthUser
+            {
+                Id = reader.GetInt64("id"),
+                SkpdId = reader.IsDBNull(reader.GetOrdinal("skpd_id"))
+                    ? null
+                    : reader.GetInt32("skpd_id"),
+                Username = reader.GetString("username"),
+                Email = reader.GetString("email"),
+                PasswordHash = reader.GetString("password_hash"),
+                IsActive = reader.GetBoolean("is_active"),
+                FailedLoginAttempt = reader.GetInt32("failed_login_attempt"),
+                LockoutUntil = reader.IsDBNull(reader.GetOrdinal("lockout_until"))
+                    ? null
+                    : reader.GetDateTime("lockout_until")
+            };
+        }
+
+        // 2. Validate token
+        if (revoked || expiresAt < DateTime.UtcNow || !user.IsActive)
+            return null;
+
+        // 3. Revoke old refresh token
+        await using var revokeCmd = connection.CreateCommand();
+        revokeCmd.CommandText = "UPDATE refresh_tokens SET revoked = 1 WHERE id = @id";
+        revokeCmd.Parameters.AddWithValue("@id", tokenId);
+        await revokeCmd.ExecuteNonQueryAsync(cancellationToken);
+
+        // 4. Load roles & permissions, issue new tokens
+        await LoadUserRolesAsync(connection, user, cancellationToken);
+        await LoadUserPermissionsAsync(connection, user, cancellationToken);
+
+        return await CreateTokensAndStoreRefreshTokenAsync(connection, user, cancellationToken);
     }
 
     private async Task LoadUserRolesAsync(
@@ -193,7 +354,7 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
         FROM roles r
         JOIN user_roles ur ON ur.role_id = r.id
         WHERE ur.user_id = @userId
-          AND r.skpd_id = @skpdId;";
+          AND (r.skpd_id = @skpdId OR r.skpd_id IS NULL);";
 
         roleCommand.Parameters.AddWithValue("@userId", user.Id);
         roleCommand.Parameters.AddWithValue("@skpdId", user.SkpdId);
@@ -203,6 +364,32 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
         while (await reader.ReadAsync(cancellationToken))
         {
             user.Roles.Add(reader.GetString("name"));
+        }
+    }
+
+    private async Task LoadUserPermissionsAsync(
+        MySqlConnection connection,
+        AuthUser user,
+        CancellationToken cancellationToken)
+    {
+        await using var permCmd = connection.CreateCommand();
+        permCmd.CommandText = @"
+        SELECT DISTINCT p.name
+        FROM permissions p
+        JOIN role_permissions rp ON rp.permission_id = p.id
+        JOIN roles r ON r.id = rp.role_id
+        JOIN user_roles ur ON ur.role_id = r.id
+        WHERE ur.user_id = @userId
+          AND (r.skpd_id = @skpdId OR r.skpd_id IS NULL);";
+
+        permCmd.Parameters.AddWithValue("@userId", user.Id);
+        permCmd.Parameters.AddWithValue("@skpdId", user.SkpdId);
+
+        await using var reader = await permCmd.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            user.Permissions.Add(reader.GetString("name"));
         }
     }
 
@@ -219,14 +406,18 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.UniqueName, user.Username),
-            //new(JwtRegisteredClaimNames.Email, user.Email),
             new("skpd_id", user.SkpdId?.ToString() ?? string.Empty),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-    };
+        };
 
         foreach (var role in user.Roles)
         {
             claims.Add(new Claim("role", role));
+        }
+
+        foreach (var permission in user.Permissions)
+        {
+            claims.Add(new Claim("permission", permission));
         }
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.SecretKey));
@@ -299,6 +490,28 @@ public sealed class AuthService(IMySqlConnectionFactory connectionFactory, IOpti
             last_login = UTC_TIMESTAMP()
         WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", userId);
+
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task InsertLoginAttempt(
+        MySqlConnection connection,
+        string? email,
+        string ipAddress,
+        string userAgent,
+        bool success,
+        string? failureReason,
+        CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+        INSERT INTO login_attempts_ip (email, ip_address, user_agent, success, failure_reason, attempt_time)
+        VALUES (@email, @ip, @ua, @success, @reason, UTC_TIMESTAMP())";
+        cmd.Parameters.AddWithValue("@email", (object?)email ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ip", ipAddress);
+        cmd.Parameters.AddWithValue("@ua", userAgent);
+        cmd.Parameters.AddWithValue("@success", success ? 1 : 0);
+        cmd.Parameters.AddWithValue("@reason", (object?)failureReason ?? DBNull.Value);
 
         await cmd.ExecuteNonQueryAsync(ct);
     }

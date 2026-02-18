@@ -6,6 +6,12 @@ public sealed class LoginRequest
     public string Password { get; set; } = string.Empty;
 }
 
+public sealed class VerifyOtpRequest
+{
+    public string UsernameOrEmail { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+}
+
 public sealed class LoginResponse
 {
     public string AccessToken { get; set; } = string.Empty;
@@ -14,6 +20,17 @@ public sealed class LoginResponse
     public DateTime RefreshTokenExpiresAtUtc { get; set; }
     public int? SkpdId { get; set; }
     public string Username { get; set; } = string.Empty;
+}
+
+public sealed class RefreshTokenRequest
+{
+    public string RefreshToken { get; set; } = string.Empty;
+}
+
+public sealed class ChangePasswordRequest
+{
+    public string OldPassword { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
 }
 
 public sealed class AuthUser
@@ -35,4 +52,5 @@ public sealed class AuthUser
     public DateTime? LastLogin { get; set; }
 
     public List<string> Roles { get; set; } = new();
+    public List<string> Permissions { get; set; } = new();
 }

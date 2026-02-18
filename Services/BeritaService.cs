@@ -46,8 +46,9 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
         var offset = (queryParams.Page - 1) * queryParams.PageSize;
 
         command.CommandText = $@"SELECT b.id, b.skpd_id, s.nama as skpd_nama, b.category_id, c.name as category_name,
-                                       b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.status, 
-                                       b.published_at, b.view_count, b.created_by, u.username as created_by_name, 
+                                       b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.galeri,
+                                       b.status, b.is_highlight, b.is_commented,
+                                       b.published_at, b.view_count, b.created_by, u.username as created_by_name,
                                        b.created_at, b.updated_at
                                 FROM berita b
                                 LEFT JOIN skpd s ON b.skpd_id = s.id
@@ -72,26 +73,50 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
     public async Task<Berita?> GetByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         await using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
-        await using var command = connection.CreateCommand();
-        command.CommandText = @"SELECT b.id, b.skpd_id, s.nama as skpd_nama, b.category_id, c.name as category_name,
-                                       b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.status, 
-                                       b.published_at, b.view_count, b.created_by, u.username as created_by_name, 
-                                       b.created_at, b.updated_at
-                                FROM berita b
-                                LEFT JOIN skpd s ON b.skpd_id = s.id
-                                LEFT JOIN users u ON b.created_by = u.id
-                                LEFT JOIN categories c ON b.category_id = c.id
-                                WHERE b.id = @id AND b.deleted_at IS NULL
-                                LIMIT 1";
-        command.Parameters.AddWithValue("@id", id);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        Berita? berita;
+        await using (var command = connection.CreateCommand())
         {
-            return null;
+            command.CommandText = @"SELECT b.id, b.skpd_id, s.nama as skpd_nama, b.category_id, c.name as category_name,
+                                           b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.galeri,
+                                           b.status, b.is_highlight, b.is_commented,
+                                           b.published_at, b.view_count, b.created_by, u.username as created_by_name,
+                                           b.created_at, b.updated_at
+                                    FROM berita b
+                                    LEFT JOIN skpd s ON b.skpd_id = s.id
+                                    LEFT JOIN users u ON b.created_by = u.id
+                                    LEFT JOIN categories c ON b.category_id = c.id
+                                    WHERE b.id = @id AND b.deleted_at IS NULL
+                                    LIMIT 1";
+            command.Parameters.AddWithValue("@id", id);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return null;
+
+            berita = MapBerita(reader);
         }
 
-        return MapBerita(reader);
+        // Fetch tags for this berita
+        await using var tagCmd = connection.CreateCommand();
+        tagCmd.CommandText = @"SELECT t.id, t.name
+                               FROM tags t
+                               INNER JOIN berita_tags bt ON t.id = bt.tag_id
+                               WHERE bt.berita_id = @id
+                               ORDER BY t.name";
+        tagCmd.Parameters.AddWithValue("@id", id);
+
+        await using var tagReader = await tagCmd.ExecuteReaderAsync(cancellationToken);
+        while (await tagReader.ReadAsync(cancellationToken))
+        {
+            berita.Tags.Add(new Tag
+            {
+                Id = tagReader.GetInt32("id"),
+                Name = tagReader.GetString("name")
+            });
+        }
+
+        return berita;
     }
 
     public async Task<IReadOnlyList<Berita>> GetByCategorySlugAsync(int skpdId, string categorySlug, int page = 1, int pageSize = 10, CancellationToken cancellationToken = default)
@@ -103,8 +128,9 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
         var offset = (page - 1) * pageSize;
 
         command.CommandText = @"SELECT b.id, b.skpd_id, s.nama as skpd_nama, b.category_id, c.name as category_name,
-                                       b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.status, 
-                                       b.published_at, b.view_count, b.created_by, u.username as created_by_name, 
+                                       b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.galeri,
+                                       b.status, b.is_highlight, b.is_commented,
+                                       b.published_at, b.view_count, b.created_by, u.username as created_by_name,
                                        b.created_at, b.updated_at
                                 FROM berita b
                                 LEFT JOIN skpd s ON b.skpd_id = s.id
@@ -157,9 +183,9 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
         var publishedAt = request.Status == "published" ? "UTC_TIMESTAMP()" : "NULL";
 
         command.CommandText = $@"INSERT INTO berita
-                                (skpd_id, category_id, title, slug, excerpt, content, thumbnail_url, status, published_at, created_by)
+                                (skpd_id, category_id, title, slug, excerpt, content, thumbnail_url, galeri, status, is_highlight, is_commented, published_at, created_by)
                                 VALUES
-                                (@skpdId, @categoryId, @title, @slug, @excerpt, @content, @thumbnailUrl, @status, {publishedAt}, @createdBy);
+                                (@skpdId, @categoryId, @title, @slug, @excerpt, @content, @thumbnailUrl, @galeri, @status, @isHighlight, @isCommented, {publishedAt}, @createdBy);
                                 SELECT LAST_INSERT_ID();";
 
         command.Parameters.AddWithValue("@skpdId", request.SkpdId);
@@ -169,11 +195,22 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
         command.Parameters.AddWithValue("@excerpt", request.Excerpt);
         command.Parameters.AddWithValue("@content", request.Content);
         command.Parameters.AddWithValue("@thumbnailUrl", request.ThumbnailUrl);
+        command.Parameters.AddWithValue("@galeri", (object?)request.Galeri ?? DBNull.Value);
         command.Parameters.AddWithValue("@status", request.Status);
+        command.Parameters.AddWithValue("@isHighlight", request.IsHighlight);
+        command.Parameters.AddWithValue("@isCommented", request.IsCommented);
         command.Parameters.AddWithValue("@createdBy", userId);
 
-        var id = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
-        return (await GetByIdAsync(id, cancellationToken))!;
+        try
+        {
+            var id = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+            return (await GetByIdAsync(id, cancellationToken))!;
+        }
+        catch (MySqlException ex) when (ex.Number == 1062)
+        {
+            throw new InvalidOperationException(
+                $"Berita dengan slug '{request.Slug}' sudah ada untuk SKPD ini. Gunakan slug yang berbeda.");
+        }
     }
 
     public async Task<bool> UpdateAsync(long id, UpdateBeritaRequest request, CancellationToken cancellationToken = default)
@@ -214,7 +251,10 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
                                     excerpt = @excerpt,
                                     content = @content,
                                     thumbnail_url = @thumbnailUrl,
+                                    galeri = @galeri,
                                     status = @status,
+                                    is_highlight = @isHighlight,
+                                    is_commented = @isCommented,
                                     {publishedAtClause}
                                     updated_at = UTC_TIMESTAMP()
                                 WHERE id = @id AND deleted_at IS NULL";
@@ -226,9 +266,20 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
         command.Parameters.AddWithValue("@excerpt", request.Excerpt);
         command.Parameters.AddWithValue("@content", request.Content);
         command.Parameters.AddWithValue("@thumbnailUrl", request.ThumbnailUrl);
+        command.Parameters.AddWithValue("@galeri", (object?)request.Galeri ?? DBNull.Value);
         command.Parameters.AddWithValue("@status", request.Status);
+        command.Parameters.AddWithValue("@isHighlight", request.IsHighlight);
+        command.Parameters.AddWithValue("@isCommented", request.IsCommented);
 
-        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        try
+        {
+            return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+        }
+        catch (MySqlException ex) when (ex.Number == 1062)
+        {
+            throw new InvalidOperationException(
+                $"Berita dengan slug '{request.Slug}' sudah ada untuk SKPD ini. Gunakan slug yang berbeda.");
+        }
     }
 
     public async Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default)
@@ -269,7 +320,10 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
             Excerpt = GetNullableString(reader, "excerpt"),
             Content = GetNullableString(reader, "content"),
             ThumbnailUrl = GetNullableString(reader, "thumbnail_url"),
+            Galeri = GetNullableString(reader, "galeri"),
             Status = reader.GetString("status"),
+            IsHighlight = !reader.IsDBNull(reader.GetOrdinal("is_highlight")) && reader.GetBoolean("is_highlight"),
+            IsCommented = !reader.IsDBNull(reader.GetOrdinal("is_commented")) && reader.GetBoolean("is_commented"),
             PublishedAt = GetNullableDateTime(reader, "published_at"),
             ViewCount = reader.GetInt64("view_count"),
             CreatedBy = GetNullableLong(reader, "created_by"),

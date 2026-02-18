@@ -66,10 +66,26 @@ public static class ClaimsPrincipalExtensions
     /// </summary>
     public static bool CanAccessSkpd(this ClaimsPrincipal user, int skpdId)
     {
-        if (user.IsAdmin())
+        if (user.IsAdmin() || user.IsSuperAdmin())
             return true;
 
         var userSkpdId = user.GetSkpdId();
         return userSkpdId.HasValue && userSkpdId.Value == skpdId;
+    }
+
+    public static bool HasPermission(this ClaimsPrincipal user, string permission)
+    {
+        var permissions = user.FindAll("permission").Select(c => c.Value);
+        return permissions.Contains(permission) || permissions.Contains("manage_all");
+    }
+
+    public static bool IsSuperAdmin(this ClaimsPrincipal user)
+    {
+        return user.FindAll("permission").Any(c => c.Value == "manage_all");
+    }
+
+    public static IEnumerable<string> GetPermissions(this ClaimsPrincipal user)
+    {
+        return user.FindAll("permission").Select(c => c.Value);
     }
 }

@@ -12,13 +12,17 @@ public sealed class Berita
     public string? Excerpt { get; set; }
     public string? Content { get; set; }
     public string? ThumbnailUrl { get; set; }
+    public string? Galeri { get; set; }
     public string Status { get; set; } = "draft";
+    public bool IsHighlight { get; set; }
+    public bool IsCommented { get; set; }
     public DateTime? PublishedAt { get; set; }
     public long ViewCount { get; set; }
     public long? CreatedBy { get; set; }
     public string? CreatedByName { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public List<Tag> Tags { get; set; } = [];
 }
 
 public sealed class CreateBeritaRequest
@@ -30,7 +34,11 @@ public sealed class CreateBeritaRequest
     public string? Excerpt { get; set; }
     public string? Content { get; set; }
     public string? ThumbnailUrl { get; set; }
+    public string? Galeri { get; set; }
     public string Status { get; set; } = "draft";
+    public bool IsHighlight { get; set; }
+    public bool IsCommented { get; set; }
+    public List<int>? TagIds { get; set; }
 }
 
 public sealed class UpdateBeritaRequest
@@ -41,7 +49,11 @@ public sealed class UpdateBeritaRequest
     public string? Excerpt { get; set; }
     public string? Content { get; set; }
     public string? ThumbnailUrl { get; set; }
+    public string? Galeri { get; set; }
     public string Status { get; set; } = "draft";
+    public bool IsHighlight { get; set; }
+    public bool IsCommented { get; set; }
+    public List<int>? TagIds { get; set; }
 }
 
 public sealed class BeritaQueryParams

@@ -37,8 +37,8 @@ public class SkpdValidationMiddleware
             return;
         }
 
-        // Admin dapat mengakses semua
-        if (context.User.IsAdmin())
+        // Admin dan SuperAdmin dapat mengakses semua
+        if (context.User.IsAdmin() || context.User.IsSuperAdmin())
         {
             await _next(context);
             return;

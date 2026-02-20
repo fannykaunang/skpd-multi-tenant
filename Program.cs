@@ -1,12 +1,15 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Threading.RateLimiting;
+using DotNetEnv;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using skpd_multi_tenant_api.Endpoints;
 using skpd_multi_tenant_api.Middleware;
 using skpd_multi_tenant_api.Options;
 using skpd_multi_tenant_api.Services;
+
+Env.Load(".env.local");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -176,7 +179,55 @@ builder.Services.AddAuthorization(options =>
 
     options.AddPolicy("CanViewAuditLogs", policy =>
         policy.RequireAssertion(ctx =>
-            ctx.User.FindAll("permission").Any(c => c.Value == "assign_role" || c.Value == "manage_all")));
+            ctx.User.FindAll("permission").Any(c => c.Value == "view_audit_logs" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanViewMedia", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c =>
+                c.Value == "view_media" ||
+                c.Value == "upload_media" ||
+                c.Value == "delete_media" ||
+                c.Value == "manage_all")));
+
+    options.AddPolicy("CanUploadMedia", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "upload_media" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanDeleteMedia", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "delete_media" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanViewMenu", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c =>
+                c.Value == "view_menu" ||
+                c.Value == "create_menu" ||
+                c.Value == "edit_menu" ||
+                c.Value == "delete_menu" ||
+                c.Value == "manage_all")));
+
+    options.AddPolicy("CanCreateMenu", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "create_menu" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanEditMenu", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "edit_menu" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanDeleteMenu", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "delete_menu" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanManageSettings", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "manage_settings" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanManageSkpdSections", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c =>
+                c.Value == "manage_skpd_hero_settings" ||
+                c.Value == "manage_skpd_sections" ||
+                c.Value == "manage_all")));
 });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
@@ -198,6 +249,10 @@ builder.Services.AddScoped<IStatsService, StatsService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IMediaService, MediaService>();
+builder.Services.AddScoped<IMenuService, MenuService>();
+builder.Services.AddScoped<ISkpdHeroSettingsService, SkpdHeroSettingsService>();
+builder.Services.AddScoped<ISkpdSectionsService, SkpdSectionsService>();
 
 var app = builder.Build();
 
@@ -231,5 +286,9 @@ app.MapStatsEndpoints();
 app.MapAuditLogEndpoints();
 app.MapSettingsEndpoints();
 app.MapNotificationEndpoints();
+app.MapMediaEndpoints();
+app.MapMenuEndpoints();
+app.MapSkpdHeroSettingsEndpoints();
+app.MapSkpdSectionsEndpoints();
 
 app.Run();

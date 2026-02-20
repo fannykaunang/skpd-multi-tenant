@@ -49,7 +49,7 @@ public static class SettingsEndpoints
                 "success", "updated", oldData: oldSettings, newData: request, ct: ct);
 
             return Results.Ok(new { message = "Pengaturan berhasil disimpan." });
-        }).RequireAuthorization("ManageAll");
+        }).RequireAuthorization("CanManageSettings");
 
         return app;
     }

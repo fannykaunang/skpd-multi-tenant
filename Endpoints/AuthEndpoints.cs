@@ -213,6 +213,10 @@ public static class AuthEndpoints
 
                 var skpdIdClaim = user.FindFirst("skpd_id")?.Value;
                 int? skpdId = !string.IsNullOrEmpty(skpdIdClaim) ? int.Parse(skpdIdClaim) : null;
+                var roles = user.FindAll("role")
+                    .Select(c => c.Value)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
 
                 // Query permissions live dari DB agar perubahan role langsung berlaku
                 // tanpa operator harus logout/login ulang
@@ -223,6 +227,7 @@ public static class AuthEndpoints
                     userId,
                     username,
                     skpdId,
+                    roles,
                     permissions,
                     isSuperAdmin = permissions.Contains("manage_all")
                 });

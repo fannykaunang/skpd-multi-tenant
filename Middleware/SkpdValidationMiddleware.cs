@@ -71,6 +71,14 @@ public class SkpdValidationMiddleware
         // Untuk POST dan PUT, validasi request body
         if (method == "POST" || method == "PUT")
         {
+            // Skip validasi untuk multipart/form-data (file upload) — bukan JSON body
+            var contentType = context.Request.ContentType ?? string.Empty;
+            if (contentType.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context);
+                return;
+            }
+
             // Enable buffering untuk bisa read body multiple times
             context.Request.EnableBuffering();
 

@@ -100,11 +100,9 @@ public static class BeritaEndpoints
                 return Results.Unauthorized();
             }
 
-            // SuperAdmin & Admin (punya permission berita) bisa pilih SKPD bebas
-            // Operator SKPD: dipaksa ke SKPD miliknya
-            var canSelectSkpd = user.IsSuperAdmin()
-                             || user.HasPermission("create_berita")
-                             || user.HasPermission("edit_berita");
+            // Hanya SuperAdmin dan Admin yang boleh memilih SKPD bebas.
+            // Role lain (Editor/Operator) wajib menggunakan SKPD dari token.
+            var canSelectSkpd = user.IsSuperAdmin() || user.IsAdmin();
 
             if (!canSelectSkpd)
             {
@@ -169,7 +167,7 @@ public static class BeritaEndpoints
                 return Results.BadRequest(new { error = "Validation Error", message = ex.Message });
             }
         })
-        .RequireAuthorization();
+        .RequireAuthorization("CanCreateBerita");
 
         // PUT update berita - SuperAdmin: bebas, Operator SKPD: hanya berita di SKPD-nya atau miliknya
         group.MapPut("/{id:long}", async (

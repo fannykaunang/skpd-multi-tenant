@@ -13,7 +13,7 @@ public static class AuditLogEndpoints
             .RequireAuthorization("CanViewAuditLogs");
 
         // GET /api/v1/audit-logs — daftar audit log dengan pagination + filter
-        // SuperAdmin: semua log, Admin (assign_role): hanya log SKPD mereka
+        // SuperAdmin: semua log, user dengan view_audit_logs: hanya log SKPD mereka
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IAuditLogService service,

@@ -3,3 +3,7 @@
 /catatan.md
 /obj/
 /.publish/
+/.wwwroot/
+appsettings.json
+appsettings.*.json
+.env*

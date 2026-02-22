@@ -14,6 +14,8 @@ public static class SkpdHeroSettingsEndpoints
             .WithTags("SKPD Hero Settings")
             .RequireAuthorization("CanManageSkpdSections");
 
+        // ─── Hero Settings ──────────────────────────────────────────
+
         group.MapGet("/", async (
             int? skpdId,
             ClaimsPrincipal user,
@@ -36,10 +38,9 @@ public static class SkpdHeroSettingsEndpoints
                     Id = 0,
                     SkpdId = effectiveSkpdId.Value,
                     HeroType = "image",
-                    Title = null,
-                    Subtitle = null,
-                    BackgroundImage = null,
-                    OverlayOpacity = 0.50m
+                    OverlayOpacity = 0.50m,
+                    Height = "500px",
+                    IsActive = true,
                 });
             }
 
@@ -83,6 +84,105 @@ public static class SkpdHeroSettingsEndpoints
                 message = "Pengaturan hero SKPD berhasil disimpan.",
                 data = updated
             });
+        });
+
+        // ─── Slides ─────────────────────────────────────────────────
+
+        group.MapGet("/slides", async (
+            int heroSettingId,
+            ISkpdHeroSettingsService service,
+            CancellationToken ct) =>
+        {
+            var slides = await service.GetSlidesByHeroIdAsync(heroSettingId, ct);
+            return Results.Ok(slides);
+        });
+
+        group.MapPost("/slides", async (
+            [FromBody] UpsertSkpdHeroSlideRequest request,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            ISkpdHeroSettingsService service,
+            IAuditService auditService,
+            CancellationToken ct) =>
+        {
+            var slide = await service.CreateSlideAsync(request, ct);
+
+            await auditService.LogAsync(user, httpContext,
+                "CREATE_HERO_SLIDE", "skpd.hero_slide.create", "skpd_hero_slides", slide.Id,
+                "success", "created", newData: slide, ct: ct);
+
+            return Results.Ok(new
+            {
+                status = "success",
+                message = "Slide berhasil ditambahkan.",
+                data = slide
+            });
+        });
+
+        group.MapPut("/slides/{id:int}", async (
+            int id,
+            [FromBody] UpsertSkpdHeroSlideRequest request,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            ISkpdHeroSettingsService service,
+            IAuditService auditService,
+            CancellationToken ct) =>
+        {
+            var oldSlide = await service.GetSlideByIdAsync(id, ct);
+            if (oldSlide is null)
+                return Results.NotFound();
+
+            var updated = await service.UpdateSlideAsync(id, request, ct);
+
+            await auditService.LogAsync(user, httpContext,
+                "UPDATE_HERO_SLIDE", "skpd.hero_slide.update", "skpd_hero_slides", id,
+                "success", "updated", oldData: oldSlide, newData: updated, ct: ct);
+
+            return Results.Ok(new
+            {
+                status = "success",
+                message = "Slide berhasil diperbarui.",
+                data = updated
+            });
+        });
+
+        group.MapDelete("/slides/{id:int}", async (
+            int id,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            ISkpdHeroSettingsService service,
+            IAuditService auditService,
+            CancellationToken ct) =>
+        {
+            var old = await service.GetSlideByIdAsync(id, ct);
+            if (old is null)
+                return Results.NotFound();
+
+            await service.DeleteSlideAsync(id, ct);
+
+            await auditService.LogAsync(user, httpContext,
+                "DELETE_HERO_SLIDE", "skpd.hero_slide.delete", "skpd_hero_slides", id,
+                "success", "deleted", oldData: old, ct: ct);
+
+            return Results.NoContent();
+        });
+
+        group.MapPut("/slides/reorder", async (
+            [FromBody] ReorderSlidesRequest request,
+            [FromQuery] int heroSettingId,
+            ClaimsPrincipal user,
+            HttpContext httpContext,
+            ISkpdHeroSettingsService service,
+            IAuditService auditService,
+            CancellationToken ct) =>
+        {
+            await service.ReorderSlidesAsync(heroSettingId, request.Ids, ct);
+
+            await auditService.LogAsync(user, httpContext,
+                "REORDER_HERO_SLIDES", "skpd.hero_slide.reorder", "skpd_hero_slides", heroSettingId,
+                "success", "reordered", ct: ct);
+
+            return Results.NoContent();
         });
 
         return app;

@@ -141,6 +141,26 @@ builder.Services.AddAuthorization(options =>
         policy.RequireAssertion(ctx =>
             ctx.User.FindAll("permission").Any(c => c.Value == "view_skpd" || c.Value == "manage_all")));
 
+    options.AddPolicy("CanViewPages", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "view_pages" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanCreatePage", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "create_page" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanEditPage", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "edit_page" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanDeletePage", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "delete_page" || c.Value == "manage_all")));
+
+    options.AddPolicy("CanPublishPage", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c => c.Value == "publish_page" || c.Value == "manage_all")));
+
     options.AddPolicy("CanCreateSkpd", policy =>
         policy.RequireAssertion(ctx =>
             ctx.User.FindAll("permission").Any(c => c.Value == "create_skpd" || c.Value == "manage_all")));
@@ -228,6 +248,24 @@ builder.Services.AddAuthorization(options =>
                 c.Value == "manage_skpd_hero_settings" ||
                 c.Value == "manage_skpd_sections" ||
                 c.Value == "manage_all")));
+
+    options.AddPolicy("CanManageSkpdTemplates", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c =>
+                c.Value == "manage_skpd_templates" ||
+                c.Value == "manage_all")));
+
+    options.AddPolicy("CanManageTemplates", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c =>
+                c.Value == "manage_templates" ||
+                c.Value == "manage_all")));
+
+    options.AddPolicy("CanManageSkpdWidgets", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.FindAll("permission").Any(c =>
+                c.Value == "manage_skpd_widgets" ||
+                c.Value == "manage_all")));
 });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
@@ -253,6 +291,11 @@ builder.Services.AddScoped<IMediaService, MediaService>();
 builder.Services.AddScoped<IMenuService, MenuService>();
 builder.Services.AddScoped<ISkpdHeroSettingsService, SkpdHeroSettingsService>();
 builder.Services.AddScoped<ISkpdSectionsService, SkpdSectionsService>();
+builder.Services.AddScoped<ISkpdTemplatesService, SkpdTemplatesService>();
+builder.Services.AddScoped<ISkpdWidgetService, SkpdWidgetService>();
+builder.Services.AddScoped<ITemplateService, TemplateService>();
+builder.Services.AddScoped<ILoginAttemptIpService, LoginAttemptIpService>();
+builder.Services.AddScoped<IPageService, PageService>();
 
 var app = builder.Build();
 
@@ -290,5 +333,10 @@ app.MapMediaEndpoints();
 app.MapMenuEndpoints();
 app.MapSkpdHeroSettingsEndpoints();
 app.MapSkpdSectionsEndpoints();
+app.MapSkpdTemplatesEndpoints();
+app.MapSkpdWidgetEndpoints();
+app.MapTemplateEndpoints();
+app.MapLoginAttemptIpEndpoints();
+app.MapPageEndpoints();
 
 app.Run();

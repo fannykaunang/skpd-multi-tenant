@@ -33,6 +33,16 @@ public static class TagEndpoints
             return item is null ? Results.NotFound() : Results.Ok(item);
         });
 
+        // GET berita by tag id
+        group.MapGet("/{id:int}/berita", async (
+            int id,
+            ITagService service,
+            CancellationToken ct) =>
+        {
+            var items = await service.GetBeritaByTagAsync(id, ct);
+            return Results.Ok(items);
+        });
+
         // POST create tag — ManageAll only
         group.MapPost("/", async (
             [FromBody] CreateTagRequest request,

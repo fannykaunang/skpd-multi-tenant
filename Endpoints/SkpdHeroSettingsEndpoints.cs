@@ -86,6 +86,24 @@ public static class SkpdHeroSettingsEndpoints
             });
         });
 
+        // ─── Public (tenant-facing, no auth) ────────────────────────
+
+        // GET hero settings + slides by skpd_id (untuk tampilan tenant publik)
+        app.MapGet("/api/v1/skpd-hero-settings/public", async (
+            int skpdId,
+            ISkpdHeroSettingsService service,
+            CancellationToken ct) =>
+        {
+            var settings = await service.GetBySkpdIdAsync(skpdId, ct);
+            if (settings is null || !settings.IsActive)
+                return Results.NotFound();
+
+            return Results.Ok(settings);
+        })
+        .WithTags("SKPD Hero Settings")
+        .RequireRateLimiting("PublicPolicy")
+        .AllowAnonymous();
+
         // ─── Slides ─────────────────────────────────────────────────
 
         group.MapGet("/slides", async (
@@ -105,6 +123,12 @@ public static class SkpdHeroSettingsEndpoints
             IAuditService auditService,
             CancellationToken ct) =>
         {
+            var textAlign = (request.TextAlign ?? string.Empty).Trim().ToLowerInvariant();
+            if (textAlign is not ("middle-left" or "middle-center" or "middle-right"
+                               or "bottom-left" or "bottom-center" or "bottom-right"))
+                return Results.BadRequest(new { message = "textAlign harus bernilai: middle-left, middle-center, middle-right, bottom-left, bottom-center, atau bottom-right." });
+            request.TextAlign = textAlign;
+
             var slide = await service.CreateSlideAsync(request, ct);
 
             await auditService.LogAsync(user, httpContext,
@@ -128,6 +152,12 @@ public static class SkpdHeroSettingsEndpoints
             IAuditService auditService,
             CancellationToken ct) =>
         {
+            var textAlign = (request.TextAlign ?? string.Empty).Trim().ToLowerInvariant();
+            if (textAlign is not ("middle-left" or "middle-center" or "middle-right"
+                               or "bottom-left" or "bottom-center" or "bottom-right"))
+                return Results.BadRequest(new { message = "textAlign harus bernilai: middle-left, middle-center, middle-right, bottom-left, bottom-center, atau bottom-right." });
+            request.TextAlign = textAlign;
+
             var oldSlide = await service.GetSlideByIdAsync(id, ct);
             if (oldSlide is null)
                 return Results.NotFound();

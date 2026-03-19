@@ -9,6 +9,7 @@ public interface ISkpdHeroSettingsService
 
     // Slides
     Task<List<SkpdHeroSlide>> GetSlidesByHeroIdAsync(int heroSettingId, CancellationToken ct = default);
+    Task<List<SkpdHeroSlide>> GetSlidesBySkpdIdAsync(int skpdId, CancellationToken ct = default);
     Task<SkpdHeroSlide?> GetSlideByIdAsync(int slideId, CancellationToken ct = default);
     Task<SkpdHeroSlide> CreateSlideAsync(UpsertSkpdHeroSlideRequest request, CancellationToken ct = default);
     Task<SkpdHeroSlide?> UpdateSlideAsync(int slideId, UpsertSkpdHeroSlideRequest request, CancellationToken ct = default);
@@ -95,6 +96,28 @@ public sealed class SkpdHeroSettingsService(IMySqlConnectionFactory connectionFa
             WHERE hero_setting_id = @heroSettingId
             ORDER BY sort_order ASC, id ASC";
         cmd.Parameters.AddWithValue("@heroSettingId", heroSettingId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            items.Add(ReadSlide(reader));
+
+        return items;
+    }
+
+    public async Task<List<SkpdHeroSlide>> GetSlidesBySkpdIdAsync(int skpdId, CancellationToken ct = default)
+    {
+        var items = new List<SkpdHeroSlide>();
+        await using var conn = await connectionFactory.CreateOpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT s.id, s.hero_setting_id, s.image_url, s.title, s.subtitle,
+                   s.button_text, s.button_url, s.button_target, s.text_align,
+                   s.sort_order, s.is_active, s.created_at, s.updated_at
+            FROM skpd_hero_slides s
+            INNER JOIN skpd_hero_settings h ON s.hero_setting_id = h.id
+            WHERE h.skpd_id = @skpdId AND s.is_active = 1
+            ORDER BY s.sort_order ASC, s.id ASC";
+        cmd.Parameters.AddWithValue("@skpdId", skpdId);
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))

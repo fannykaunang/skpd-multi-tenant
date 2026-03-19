@@ -7,6 +7,9 @@ public sealed class MenuItemFlat
     public int    Id        { get; set; }
     public int    MenuId    { get; set; }
     public int?   ParentId  { get; set; }
+    public long?  PageId    { get; set; }
+    public string? PageSlug { get; set; }
+    public string? PageTitle { get; set; }
     public string Title     { get; set; } = string.Empty;
     public string Url       { get; set; } = string.Empty;
     public int    SortOrder { get; set; }
@@ -19,6 +22,9 @@ public sealed class MenuItemNode
 {
     public int              Id        { get; set; }
     public int?             ParentId  { get; set; }
+    public long?            PageId    { get; set; }
+    public string?          PageSlug  { get; set; }
+    public string?          PageTitle { get; set; }
     public string           Title     { get; set; } = string.Empty;
     public string           Url       { get; set; } = string.Empty;
     public int              SortOrder { get; set; }
@@ -66,6 +72,7 @@ public sealed class UpdateMenuRequest
 public sealed class CreateMenuItemRequest
 {
     public int?   ParentId  { get; set; }
+    public long?  PageId    { get; set; }
     public string Title     { get; set; } = string.Empty;
     public string Url       { get; set; } = string.Empty;
     public int    SortOrder { get; set; } = 0;
@@ -75,6 +82,7 @@ public sealed class CreateMenuItemRequest
 public sealed class UpdateMenuItemRequest
 {
     public int?   ParentId  { get; set; }
+    public long?  PageId    { get; set; }
     public string Title     { get; set; } = string.Empty;
     public string Url       { get; set; } = string.Empty;
     public int    SortOrder { get; set; } = 0;

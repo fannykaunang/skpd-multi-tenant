@@ -7,6 +7,7 @@ public interface ISkpdService
 {
     Task<IReadOnlyList<Skpd>> GetAllAsync(CancellationToken cancellationToken = default);
     Task<Skpd?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+    Task<Skpd?> GetByDomainAsync(string domain, CancellationToken cancellationToken = default);
     Task<Skpd> CreateAsync(CreateSkpdRequest request, CancellationToken cancellationToken = default);
     Task<bool> UpdateAsync(int id, UpdateSkpdRequest request, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default);
@@ -50,6 +51,26 @@ public sealed class SkpdService(IMySqlConnectionFactory connectionFactory) : ISk
         {
             return null;
         }
+
+        return MapSkpd(reader);
+    }
+
+    public async Task<Skpd?> GetByDomainAsync(string domain, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT id, kode, nama, slug, domain, logo_url, primary_color, secondary_color,
+                                       theme_type, layout_type, is_active, created_at, updated_at
+                                FROM skpd
+                                WHERE deleted_at IS NULL
+                                  AND is_active = 1
+                                  AND domain = @domain
+                                LIMIT 1";
+        command.Parameters.AddWithValue("@domain", domain);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return null;
 
         return MapSkpd(reader);
     }

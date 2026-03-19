@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using skpd_multi_tenant_api.Models;
 
 namespace skpd_multi_tenant_api.Services;
@@ -21,7 +22,7 @@ public sealed class SkpdSectionsService(IMySqlConnectionFactory connectionFactor
         await using var conn = await connectionFactory.CreateOpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            SELECT id, skpd_id, section_code, is_enabled, sort_order, custom_title
+            SELECT id, skpd_id, section_code, section_type, is_enabled, sort_order, custom_title, content_data
             FROM skpd_sections
             WHERE skpd_id = @skpdId
             ORDER BY sort_order, id";
@@ -41,7 +42,7 @@ public sealed class SkpdSectionsService(IMySqlConnectionFactory connectionFactor
         await using var conn = await connectionFactory.CreateOpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            SELECT id, skpd_id, section_code, is_enabled, sort_order, custom_title
+            SELECT id, skpd_id, section_code, section_type, is_enabled, sort_order, custom_title, content_data
             FROM skpd_sections
             WHERE id = @id
             LIMIT 1";
@@ -59,14 +60,18 @@ public sealed class SkpdSectionsService(IMySqlConnectionFactory connectionFactor
         await using var conn = await connectionFactory.CreateOpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            INSERT INTO skpd_sections (skpd_id, section_code, is_enabled, sort_order, custom_title)
-            VALUES (@skpdId, @sectionCode, @isEnabled, @sortOrder, @customTitle);
+            INSERT INTO skpd_sections (skpd_id, section_code, section_type, is_enabled, sort_order, custom_title, content_data)
+            VALUES (@skpdId, @sectionCode, @sectionType, @isEnabled, @sortOrder, @customTitle, @contentData);
             SELECT LAST_INSERT_ID();";
         cmd.Parameters.AddWithValue("@skpdId", skpdId);
         cmd.Parameters.AddWithValue("@sectionCode", request.SectionCode.Trim());
+        cmd.Parameters.AddWithValue("@sectionType", string.IsNullOrWhiteSpace(request.SectionType) ? "default" : request.SectionType);
         cmd.Parameters.AddWithValue("@isEnabled", request.IsEnabled ? 1 : 0);
         cmd.Parameters.AddWithValue("@sortOrder", request.SortOrder);
         cmd.Parameters.AddWithValue("@customTitle", (object?)request.CustomTitle?.Trim() ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentData", request.ContentData.HasValue
+            ? JsonSerializer.Serialize(request.ContentData.Value)
+            : DBNull.Value);
 
         var insertedId = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
         var item = await GetByIdAsync(insertedId, ct);
@@ -80,15 +85,21 @@ public sealed class SkpdSectionsService(IMySqlConnectionFactory connectionFactor
         cmd.CommandText = @"
             UPDATE skpd_sections
             SET section_code = @sectionCode,
-                is_enabled = @isEnabled,
-                sort_order = @sortOrder,
-                custom_title = @customTitle
+                section_type = @sectionType,
+                is_enabled   = @isEnabled,
+                sort_order   = @sortOrder,
+                custom_title = @customTitle,
+                content_data = @contentData
             WHERE id = @id";
         cmd.Parameters.AddWithValue("@id", id);
         cmd.Parameters.AddWithValue("@sectionCode", request.SectionCode.Trim());
+        cmd.Parameters.AddWithValue("@sectionType", string.IsNullOrWhiteSpace(request.SectionType) ? "default" : request.SectionType);
         cmd.Parameters.AddWithValue("@isEnabled", request.IsEnabled ? 1 : 0);
         cmd.Parameters.AddWithValue("@sortOrder", request.SortOrder);
         cmd.Parameters.AddWithValue("@customTitle", (object?)request.CustomTitle?.Trim() ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentData", request.ContentData.HasValue
+            ? JsonSerializer.Serialize(request.ContentData.Value)
+            : DBNull.Value);
 
         var affected = await cmd.ExecuteNonQueryAsync(ct);
         return affected > 0;
@@ -164,12 +175,14 @@ public sealed class SkpdSectionsService(IMySqlConnectionFactory connectionFactor
     {
         return new SkpdSection
         {
-            Id = reader.GetInt32("id"),
-            SkpdId = reader.GetInt32("skpd_id"),
-            SectionCode = reader.IsDBNull(reader.GetOrdinal("section_code")) ? string.Empty : reader.GetString("section_code"),
-            IsEnabled = reader.GetBoolean("is_enabled"),
-            SortOrder = reader.GetInt32("sort_order"),
-            CustomTitle = reader.IsDBNull(reader.GetOrdinal("custom_title")) ? null : reader.GetString("custom_title"),
+            Id          = reader.GetInt32("id"),
+            SkpdId      = reader.GetInt32("skpd_id"),
+            SectionCode = reader.IsDBNull(reader.GetOrdinal("section_code"))  ? string.Empty : reader.GetString("section_code"),
+            SectionType = reader.IsDBNull(reader.GetOrdinal("section_type"))  ? "default"    : reader.GetString("section_type"),
+            IsEnabled   = reader.GetBoolean("is_enabled"),
+            SortOrder   = reader.GetInt32("sort_order"),
+            CustomTitle = reader.IsDBNull(reader.GetOrdinal("custom_title"))  ? null         : reader.GetString("custom_title"),
+            ContentData = reader.IsDBNull(reader.GetOrdinal("content_data"))  ? null         : JsonSerializer.Deserialize<JsonElement?>(reader.GetString("content_data")),
         };
     }
 }

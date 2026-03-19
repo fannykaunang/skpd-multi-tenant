@@ -20,12 +20,26 @@ public static class SkpdWidgetEndpoints
             ISkpdWidgetService service,
             CancellationToken ct) =>
         {
-            var effectiveSkpdId = ResolveEffectiveSkpdId(user, skpdId);
-            if (!effectiveSkpdId.HasValue)
+            if (user.IsSuperAdmin())
+            {
+                if (skpdId.HasValue)
+                {
+                    var items = await service.GetAllBySkpdAsync(skpdId.Value, ct);
+                    return Results.Ok(items);
+                }
+                else
+                {
+                    var items = await service.GetAllAsync(ct);
+                    return Results.Ok(items);
+                }
+            }
+
+            var userSkpdId = user.GetSkpdId();
+            if (!userSkpdId.HasValue)
                 return Results.Forbid();
 
-            var items = await service.GetAllBySkpdAsync(effectiveSkpdId.Value, ct);
-            return Results.Ok(items);
+            var userItems = await service.GetAllBySkpdAsync(userSkpdId.Value, ct);
+            return Results.Ok(userItems);
         });
 
         group.MapGet("/{id:int}", async (
@@ -175,16 +189,4 @@ public static class SkpdWidgetEndpoints
         return app;
     }
 
-    private static int? ResolveEffectiveSkpdId(ClaimsPrincipal user, int? requestedSkpdId)
-    {
-        if (user.IsSuperAdmin())
-        {
-            // SuperAdmin wajib kirim skpdId kalo mau lihat list per SKPD, kl ga kirim berarti Forbid/Bad Request.
-            // Biar gampang, kita wajibkan mereka sampaikan skpdId via query params
-            return requestedSkpdId;
-        }
-
-        // Kalau bukan superadmin, skip requestedSkpdId dan pakai credential auth dari token
-        return user.GetSkpdId();
-    }
 }

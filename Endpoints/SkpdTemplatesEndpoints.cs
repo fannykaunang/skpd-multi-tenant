@@ -94,6 +94,23 @@ public static class SkpdTemplatesEndpoints
             });
         });
 
+        // ─── Public (tenant-facing, no auth) ────────────────────────
+
+        // GET template settings by skpdId (untuk tampilan tenant publik)
+        app.MapGet("/api/v1/skpd-templates/public", async (
+            int skpdId,
+            ISkpdTemplatesService service,
+            CancellationToken ct) =>
+        {
+            var setting = await service.GetBySkpdIdAsync(skpdId, ct);
+            if (setting is null)
+                return Results.NotFound();
+            return Results.Ok(setting);
+        })
+        .WithTags("SKPD Templates")
+        .RequireRateLimiting("PublicPolicy")
+        .AllowAnonymous();
+
         return app;
     }
 

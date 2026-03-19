@@ -58,6 +58,22 @@ public static class SkpdSectionsEndpoints
             });
         });
 
+        group.MapGet("/{id:int}", async (
+            int id,
+            ClaimsPrincipal user,
+            ISkpdSectionsService service,
+            CancellationToken ct) =>
+        {
+            var item = await service.GetByIdAsync(id, ct);
+            if (item is null)
+                return Results.NotFound(new { message = "Section tidak ditemukan." });
+
+            if (!CanAccessSkpd(user, item.SkpdId))
+                return Results.Forbid();
+
+            return Results.Ok(new { status = "success", data = item });
+        });
+
         group.MapPut("/{id:int}", async (
             int id,
             [FromBody] UpdateSkpdSectionRequest request,
@@ -143,6 +159,26 @@ public static class SkpdSectionsEndpoints
 
             return Results.Ok(new { status = "success", message = "Urutan section berhasil diperbarui." });
         });
+
+        // ─── Public (tenant-facing, no auth) ────────────────────────
+
+        // GET enabled sections by skpdId (untuk tampilan tenant publik)
+        app.MapGet("/api/v1/skpd-sections/public", async (
+            int skpdId,
+            ISkpdSectionsService service,
+            CancellationToken ct) =>
+        {
+            var items = await service.GetAllAsync(skpdId, ct);
+            var enabled = items
+                .Where(s => s.IsEnabled)
+                .OrderBy(s => s.SortOrder)
+                .ThenBy(s => s.Id)
+                .ToList();
+            return Results.Ok(enabled);
+        })
+        .WithTags("SKPD Sections")
+        .RequireRateLimiting("PublicPolicy")
+        .AllowAnonymous();
 
         return app;
     }

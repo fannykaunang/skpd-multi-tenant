@@ -7,6 +7,7 @@ public interface IBeritaService
 {
     Task<IReadOnlyList<Berita>> GetAllAsync(BeritaQueryParams queryParams, CancellationToken cancellationToken = default);
     Task<Berita?> GetByIdAsync(long id, CancellationToken cancellationToken = default);
+    Task<Berita?> GetBySlugAsync(string slug, int skpdId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Berita>> GetByCategorySlugAsync(int skpdId, string categorySlug, int page = 1, int pageSize = 10, CancellationToken cancellationToken = default);
     Task<Berita> CreateAsync(CreateBeritaRequest request, long userId, CancellationToken cancellationToken = default);
     Task<bool> UpdateAsync(long id, UpdateBeritaRequest request, CancellationToken cancellationToken = default);
@@ -105,6 +106,56 @@ public sealed class BeritaService(IMySqlConnectionFactory connectionFactory) : I
                                WHERE bt.berita_id = @id
                                ORDER BY t.name";
         tagCmd.Parameters.AddWithValue("@id", id);
+
+        await using var tagReader = await tagCmd.ExecuteReaderAsync(cancellationToken);
+        while (await tagReader.ReadAsync(cancellationToken))
+        {
+            berita.Tags.Add(new Tag
+            {
+                Id = tagReader.GetInt32("id"),
+                Name = tagReader.GetString("name")
+            });
+        }
+
+        return berita;
+    }
+
+    public async Task<Berita?> GetBySlugAsync(string slug, int skpdId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connectionFactory.CreateOpenConnectionAsync(cancellationToken);
+
+        Berita? berita;
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = @"SELECT b.id, b.skpd_id, s.nama as skpd_nama, b.category_id, c.name as category_name,
+                                           b.title, b.slug, b.excerpt, b.content, b.thumbnail_url, b.galeri,
+                                           b.status, b.is_highlight, b.is_commented,
+                                           b.published_at, b.view_count, b.created_by, u.username as created_by_name,
+                                           b.created_at, b.updated_at
+                                    FROM berita b
+                                    LEFT JOIN skpd s ON b.skpd_id = s.id
+                                    LEFT JOIN users u ON b.created_by = u.id
+                                    LEFT JOIN categories c ON b.category_id = c.id
+                                    WHERE b.slug = @slug AND b.skpd_id = @skpdId AND b.deleted_at IS NULL
+                                    LIMIT 1";
+            command.Parameters.AddWithValue("@slug", slug);
+            command.Parameters.AddWithValue("@skpdId", skpdId);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return null;
+
+            berita = MapBerita(reader);
+        }
+
+        // Fetch tags
+        await using var tagCmd = connection.CreateCommand();
+        tagCmd.CommandText = @"SELECT t.id, t.name
+                               FROM tags t
+                               INNER JOIN berita_tags bt ON t.id = bt.tag_id
+                               WHERE bt.berita_id = @id
+                               ORDER BY t.name";
+        tagCmd.Parameters.AddWithValue("@id", berita.Id);
 
         await using var tagReader = await tagCmd.ExecuteReaderAsync(cancellationToken);
         while (await tagReader.ReadAsync(cancellationToken))

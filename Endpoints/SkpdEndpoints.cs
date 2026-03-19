@@ -9,6 +9,40 @@ public static class SkpdEndpoints
 {
     public static IEndpointRouteBuilder MapSkpdEndpoints(this IEndpointRouteBuilder app)
     {
+        // ── Endpoint publik (tanpa auth) ──────────────────────────────────────
+        // Dipanggil oleh Next.js server-side (layout/page tenant publik).
+        // Tidak memerlukan login — hanya mengembalikan data SKPD yang aktif.
+        var publicGroup = app.MapGroup("/api/v1/skpd")
+            .WithTags("SKPD")
+            .RequireRateLimiting("PublicPolicy");
+
+        publicGroup.MapGet("/by-domain", async (
+            string domain,
+            ISkpdService service,
+            CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(domain))
+                return Results.BadRequest(new
+                {
+                    status = "error",
+                    message = "Parameter 'domain' wajib diisi."
+                });
+
+            var skpd = await service.GetByDomainAsync(domain.Trim().ToLowerInvariant(), cancellationToken);
+            return skpd is null
+                ? Results.NotFound(new
+                {
+                    status = "error",
+                    message = $"SKPD dengan domain '{domain}' tidak ditemukan atau tidak aktif."
+                })
+                : Results.Ok(new
+                {
+                    status = "success",
+                    data = skpd
+                });
+        });
+
+        // ── Endpoint terproteksi (perlu login) ────────────────────────────────
         var group = app.MapGroup("/api/v1/skpd")
             .WithTags("SKPD")
             .RequireAuthorization();

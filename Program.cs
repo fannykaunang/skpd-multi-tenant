@@ -88,7 +88,16 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.SetIsOriginAllowed(origin =>
+              {
+                  if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
+                  var host = uri.Host;
+                  // Izinkan localhost (development)
+                  if (host == "localhost") return true;
+                  // Izinkan domain utama dan seluruh subdomain-nya
+                  var mainHost = Environment.GetEnvironmentVariable("MAIN_HOSTNAME") ?? "merauke.go.id";
+                  return host == mainHost || host.EndsWith($".{mainHost}");
+              })
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -294,8 +303,10 @@ builder.Services.AddScoped<ISkpdSectionsService, SkpdSectionsService>();
 builder.Services.AddScoped<ISkpdTemplatesService, SkpdTemplatesService>();
 builder.Services.AddScoped<ISkpdWidgetService, SkpdWidgetService>();
 builder.Services.AddScoped<ITemplateService, TemplateService>();
+builder.Services.AddScoped<ITemplateSectionService, TemplateSectionService>();
 builder.Services.AddScoped<ILoginAttemptIpService, LoginAttemptIpService>();
 builder.Services.AddScoped<IPageService, PageService>();
+builder.Services.AddScoped<ISettingHeroSlideService, SettingHeroSlideService>();
 
 var app = builder.Build();
 
@@ -336,7 +347,9 @@ app.MapSkpdSectionsEndpoints();
 app.MapSkpdTemplatesEndpoints();
 app.MapSkpdWidgetEndpoints();
 app.MapTemplateEndpoints();
+app.MapTemplateSectionEndpoints();
 app.MapLoginAttemptIpEndpoints();
 app.MapPageEndpoints();
+app.MapSettingHeroSlideEndpoints();
 
 app.Run();

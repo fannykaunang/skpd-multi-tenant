@@ -5,6 +5,7 @@ namespace skpd_multi_tenant_api.Services;
 
 public interface ISkpdWidgetService
 {
+    Task<IEnumerable<SkpdWidget>> GetAllAsync(CancellationToken ct = default);
     Task<IEnumerable<SkpdWidget>> GetAllBySkpdAsync(int skpdId, CancellationToken ct = default);
     Task<SkpdWidget?> GetByIdAsync(int id, CancellationToken ct = default);
     Task<SkpdWidget> CreateAsync(CreateSkpdWidgetRequest request, CancellationToken ct = default);
@@ -14,13 +15,33 @@ public interface ISkpdWidgetService
 
 public class SkpdWidgetService(IMySqlConnectionFactory connectionFactory) : ISkpdWidgetService
 {
+    public async Task<IEnumerable<SkpdWidget>> GetAllAsync(CancellationToken ct = default)
+    {
+        await using var conn = await connectionFactory.CreateOpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT w.id, w.skpd_id, w.widget_code, w.widget_type, w.config, w.is_active,
+                   s.nama as skpd_name
+            FROM skpd_widgets w
+            JOIN skpd s ON w.skpd_id = s.id
+            ORDER BY w.skpd_id ASC, w.id ASC";
+
+        var items = new List<SkpdWidget>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            items.Add(MapToSkpdWidget(reader, includeSkpdName: true));
+        }
+        return items;
+    }
+
     public async Task<IEnumerable<SkpdWidget>> GetAllBySkpdAsync(int skpdId, CancellationToken ct = default)
     {
         await using var conn = await connectionFactory.CreateOpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
             SELECT w.id, w.skpd_id, w.widget_code, w.widget_type, w.config, w.is_active,
-                   s.name as skpd_name
+                   s.nama as skpd_name
             FROM skpd_widgets w
             JOIN skpd s ON w.skpd_id = s.id
             WHERE w.skpd_id = @skpdId

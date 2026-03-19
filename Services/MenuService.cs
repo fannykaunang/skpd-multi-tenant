@@ -169,16 +169,25 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
                     $"Kedalaman menu melebihi batas maksimal {MaxDepth} level.");
         }
 
+        if (request.PageId.HasValue)
+        {
+            var pageInSameSkpd = await IsPageInSameSkpdAsync(connection, menuId, request.PageId.Value, ct);
+            if (!pageInSameSkpd)
+                throw new InvalidOperationException(
+                    $"Halaman {request.PageId.Value} tidak ditemukan atau bukan milik SKPD yang sama.");
+        }
+
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO menu_items (menu_id, parent_id, title, url, sort_order, is_active)
-            VALUES (@menuId, @parentId, @title, @url, @sortOrder, @isActive);
+            INSERT INTO menu_items (menu_id, parent_id, page_id, title, url, sort_order, is_active)
+            VALUES (@menuId, @parentId, @pageId, @title, @url, @sortOrder, @isActive);
             SELECT LAST_INSERT_ID();
             """;
         cmd.Parameters.AddWithValue("@menuId", menuId);
         cmd.Parameters.AddWithValue("@parentId", request.ParentId.HasValue ? request.ParentId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@pageId", request.PageId.HasValue ? request.PageId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@title", request.Title.Trim());
-        cmd.Parameters.AddWithValue("@url", request.Url.Trim());
+        cmd.Parameters.AddWithValue("@url", (request.Url ?? string.Empty).Trim());
         cmd.Parameters.AddWithValue("@sortOrder", request.SortOrder);
         cmd.Parameters.AddWithValue("@isActive", request.IsActive ? 1 : 0);
 
@@ -212,6 +221,14 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
                     $"Parent item {request.ParentId} tidak ditemukan dalam menu yang sama.");
         }
 
+        if (request.PageId.HasValue)
+        {
+            var pageInSameSkpd = await IsPageInSameSkpdAsync(connection, item.MenuId, request.PageId.Value, ct);
+            if (!pageInSameSkpd)
+                throw new InvalidOperationException(
+                    $"Halaman {request.PageId.Value} tidak ditemukan atau bukan milik SKPD yang sama.");
+        }
+
         // Simulate the new state in the parent map
         parentMap[id] = request.ParentId;
 
@@ -234,6 +251,7 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
         cmd.CommandText = """
             UPDATE menu_items
             SET parent_id  = @parentId,
+                page_id    = @pageId,
                 title      = @title,
                 url        = @url,
                 sort_order = @sortOrder,
@@ -241,8 +259,9 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
             WHERE id = @id
             """;
         cmd.Parameters.AddWithValue("@parentId", request.ParentId.HasValue ? request.ParentId.Value : DBNull.Value);
+        cmd.Parameters.AddWithValue("@pageId", request.PageId.HasValue ? request.PageId.Value : DBNull.Value);
         cmd.Parameters.AddWithValue("@title", request.Title.Trim());
-        cmd.Parameters.AddWithValue("@url", request.Url.Trim());
+        cmd.Parameters.AddWithValue("@url", (request.Url ?? string.Empty).Trim());
         cmd.Parameters.AddWithValue("@sortOrder", request.SortOrder);
         cmd.Parameters.AddWithValue("@isActive", request.IsActive ? 1 : 0);
         cmd.Parameters.AddWithValue("@id", id);
@@ -435,10 +454,12 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
     {
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, menu_id, parent_id, title, url, sort_order, is_active
-            FROM menu_items
-            WHERE menu_id = @menuId
-            ORDER BY sort_order, id
+            SELECT mi.id, mi.menu_id, mi.parent_id, mi.page_id, mi.title, mi.url, mi.sort_order, mi.is_active,
+                   p.slug AS page_slug, p.title AS page_title
+            FROM menu_items mi
+            LEFT JOIN pages p ON p.id = mi.page_id AND p.deleted_at IS NULL
+            WHERE mi.menu_id = @menuId
+            ORDER BY mi.sort_order, mi.id
             """;
         cmd.Parameters.AddWithValue("@menuId", menuId);
 
@@ -455,9 +476,11 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
     {
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, menu_id, parent_id, title, url, sort_order, is_active
-            FROM menu_items
-            WHERE id = @id
+            SELECT mi.id, mi.menu_id, mi.parent_id, mi.page_id, mi.title, mi.url, mi.sort_order, mi.is_active,
+                   p.slug AS page_slug, p.title AS page_title
+            FROM menu_items mi
+            LEFT JOIN pages p ON p.id = mi.page_id AND p.deleted_at IS NULL
+            WHERE mi.id = @id
             LIMIT 1
             """;
         cmd.Parameters.AddWithValue("@id", id);
@@ -482,6 +505,9 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
             {
                 Id = item.Id,
                 ParentId = item.ParentId,
+                PageId = item.PageId,
+                PageSlug = item.PageSlug,
+                PageTitle = item.PageTitle,
                 Title = item.Title,
                 Url = item.Url,
                 SortOrder = item.SortOrder,
@@ -558,6 +584,28 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
         return depth;
     }
 
+    private static async Task<bool> IsPageInSameSkpdAsync(
+        MySqlConnection connection,
+        int menuId,
+        long pageId,
+        CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*)
+            FROM pages p
+            INNER JOIN menus m ON m.skpd_id = p.skpd_id
+            WHERE m.id = @menuId
+              AND p.id = @pageId
+              AND p.deleted_at IS NULL
+            """;
+        cmd.Parameters.AddWithValue("@menuId", menuId);
+        cmd.Parameters.AddWithValue("@pageId", pageId);
+
+        var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        return count > 0;
+    }
+
     // ── Row mapper ─────────────────────────────────────────────────────────
 
     private static MenuItemFlat MapFlat(MySqlDataReader reader) => new()
@@ -565,6 +613,9 @@ public sealed class MenuService(IMySqlConnectionFactory connectionFactory) : IMe
         Id = reader.GetInt32("id"),
         MenuId = reader.GetInt32("menu_id"),
         ParentId = reader.IsDBNull("parent_id") ? null : reader.GetInt32("parent_id"),
+        PageId = reader.IsDBNull("page_id") ? null : reader.GetInt64("page_id"),
+        PageSlug = reader.IsDBNull("page_slug") ? null : reader.GetString("page_slug"),
+        PageTitle = reader.IsDBNull("page_title") ? null : reader.GetString("page_title"),
         Title = reader.GetString("title"),
         Url = reader.GetString("url"),
         SortOrder = reader.GetInt32("sort_order"),

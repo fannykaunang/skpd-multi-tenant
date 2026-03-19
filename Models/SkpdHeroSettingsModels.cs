@@ -40,7 +40,7 @@ public sealed class SkpdHeroSlide
     public string? ButtonText { get; set; }
     public string? ButtonUrl { get; set; }
     public string ButtonTarget { get; set; } = "_self";
-    public string TextAlign { get; set; } = "center";
+    public string TextAlign { get; set; } = "middle-center";
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime? CreatedAt { get; set; }
@@ -56,7 +56,7 @@ public sealed class UpsertSkpdHeroSlideRequest
     public string? ButtonText { get; set; }
     public string? ButtonUrl { get; set; }
     public string ButtonTarget { get; set; } = "_self";
-    public string TextAlign { get; set; } = "center";
+    public string TextAlign { get; set; } = "middle-center";
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
 }

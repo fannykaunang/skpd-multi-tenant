@@ -10,6 +10,26 @@ public static class PageEndpoints
 {
     public static IEndpointRouteBuilder MapPageEndpoints(this IEndpointRouteBuilder app)
     {
+        // Public tenant endpoint (no auth):
+        // GET /api/v1/pages/public/slug/{slug}?skpdId={skpdId}
+        app.MapGet("/api/v1/pages/public/slug/{slug}", async (
+            string slug,
+            int skpdId,
+            IPageService service,
+            CancellationToken cancellationToken) =>
+        {
+            var item = await service.GetBySlugAsync(skpdId, slug, cancellationToken);
+            if (item is null || !string.Equals(item.Status, "published", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.NotFound(new { status = "error", message = "Halaman tidak ditemukan." });
+            }
+
+            return Results.Ok(new { status = "success", data = item });
+        })
+        .WithTags("Pages")
+        .RequireRateLimiting("PublicPolicy")
+        .AllowAnonymous();
+
         var group = app.MapGroup("/api/v1/pages")
             .WithTags("Pages")
             .RequireAuthorization();

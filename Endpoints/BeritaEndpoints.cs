@@ -54,6 +54,19 @@ public static class BeritaEndpoints
         })
         .AllowAnonymous(); // Terapkan rate limit untuk endpoint ini
 
+        // GET berita by slug (untuk public tenant page)
+        group.MapGet("/slug/{slug}", async (
+            string slug,
+            int skpdId,
+            IBeritaService service,
+            CancellationToken cancellationToken) =>
+        {
+            var item = await service.GetBySlugAsync(slug, skpdId, cancellationToken);
+            return item is null ? Results.NotFound() : Results.Ok(item);
+        })
+        .RequireRateLimiting("PublicPolicy")
+        .AllowAnonymous();
+
         // GET berita by category slug (untuk public)
         group.MapGet("/category/{skpdId:int}/{categorySlug}", async (
             int skpdId,

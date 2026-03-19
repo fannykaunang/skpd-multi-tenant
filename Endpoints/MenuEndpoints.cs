@@ -9,6 +9,29 @@ public static class MenuEndpoints
 {
     public static IEndpointRouteBuilder MapMenuEndpoints(this IEndpointRouteBuilder app)
     {
+        // Public tenant endpoint (no auth):
+        // GET /api/v1/menus/public?skpdId={skpdId}
+        // Returns the latest menu for a SKPD with its nested items.
+        app.MapGet("/api/v1/menus/public", async (
+            int skpdId,
+            IMenuService service,
+            CancellationToken ct) =>
+        {
+            var menus = await service.GetAllAsync(skpdId, ct);
+            var selected = menus.FirstOrDefault();
+            if (selected is null)
+                return Results.NotFound(new { status = "error", message = "Menu tidak ditemukan." });
+
+            var detail = await service.GetByIdAsync(selected.Id, ct);
+            if (detail is null)
+                return Results.NotFound(new { status = "error", message = "Menu tidak ditemukan." });
+
+            return Results.Ok(new { status = "success", data = detail });
+        })
+        .WithTags("Menus")
+        .RequireRateLimiting("PublicPolicy")
+        .AllowAnonymous();
+
         // ══════════════════════════════════════════════════════════════════════
         // MENU  — /api/v1/menus
         // ══════════════════════════════════════════════════════════════════════
@@ -225,8 +248,12 @@ public static class MenuEndpoints
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { status = "error", message = "Title menu item wajib diisi." });
 
-            if (string.IsNullOrWhiteSpace(request.Url))
-                return Results.BadRequest(new { status = "error", message = "URL menu item wajib diisi." });
+            if (!request.PageId.HasValue && string.IsNullOrWhiteSpace(request.Url))
+                return Results.BadRequest(new
+                {
+                    status = "error",
+                    message = "URL wajib diisi jika halaman belum dipilih."
+                });
 
             // Tenant check
             var menuSkpdId = await service.GetMenuSkpdIdAsync(menuId, ct);
@@ -270,8 +297,12 @@ public static class MenuEndpoints
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { status = "error", message = "Title menu item wajib diisi." });
 
-            if (string.IsNullOrWhiteSpace(request.Url))
-                return Results.BadRequest(new { status = "error", message = "URL menu item wajib diisi." });
+            if (!request.PageId.HasValue && string.IsNullOrWhiteSpace(request.Url))
+                return Results.BadRequest(new
+                {
+                    status = "error",
+                    message = "URL wajib diisi jika halaman belum dipilih."
+                });
 
             // Fetch item to get its menu, then check tenant ownership
             var item = await service.GetMenuItemAsync(id, ct);
